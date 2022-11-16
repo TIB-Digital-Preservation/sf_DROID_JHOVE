@@ -1,12 +1,22 @@
+#sfDroidJhove Version 1.1
 use strict;
 use warnings;
 use Text::CSV;
 use XML::LibXML;
+use File::Copy;
+use File::Basename;
 #set DROID and sf in environment variables
 #Droid umstellen auf MaxByteScan -1 und Archivordner sollen NICHT ausgepackt werden.
+
+#search for signature updates for sf and DROID
+qx(droid.bat -d);
+qx(sf -update);
+
 my $dir = "/path/to/dir";
 my $output = "/path/to/output/dir";
-#print $dir;
+#sollen Dateien, die untersucht werden müssen (nicht wohlgeformt, nicht valide, mehrere PUIDs), in entsprechende Ordner kopiert werden?
+#Optionen: "yes" oder "no"
+my $copyFiles = "yes";
 
 #make hash of all puids and respective jhove modules
 my %jhoveModules = ("fmt/17"=>"PDF-hul", "fmt/18"=>"PDF-hul", "fmt/19"=>"PDF-hul", "fmt/20"=>"PDF-hul", "fmt/14"=>"PDF-hul", "fmt/15"=>"PDF-hul", "fmt/16"=>"PDF-hul", "fmt/95"=>"PDF-hul", "fmt/144"=>"PDF-hul", "fmt/145"=>"PDF-hul", "fmt/146"=>"PDF-hul", "fmt/147"=>"PDF-hul", "fmt/148"=>"PDF-hul", "fmt/157"=>"PDF-hul", "fmt/158"=>"PDF-hul", "fmt/276"=>"PDF-hul", "fmt/354"=>"PDF-hul", "fmt/476"=>"PDF-hul", "fmt/477"=>"PDF-hul", "fmt/478"=>"PDF-hul", "fmt/479"=>"PDF-hul", "fmt/480"=>"PDF-hul", "fmt/481"=>"PDF-hul", "fmt/488"=>"PDF-hul", "fmt/489"=>"PDF-hul", "fmt/490"=>"PDF-hul", "fmt/491"=>"PDF-hul", "fmt/492"=>"PDF-hul", "fmt/493"=>"PDF-hul", "fmt/152"=>"TIFF-hul", "fmt/7"=>"TIFF-hul", "fmt/8"=>"TIFF-hul", "fmt/9"=>"TIFF-hul", "fmt/10"=>"TIFF-hul", "x-fmt/399"=>"TIFF-hul", "x-fmt/388"=>"TIFF-hul", "x-fmt/387"=>"TIFF-hul", "fmt/155"=>"TIFF-hul", "fmt/353"=>"TIFF-hul", "fmt/154"=>"TIFF-hul", "fmt/153"=>"TIFF-hul", "fmt/156"=>"TIFF-hul", "fmt/436"=>"TIFF-hul", "fmt/437"=>"TIFF-hul", "fmt/730"=>"TIFF-hul", "fmt/41"=>"JPEG-hul", "fmt/42"=>"JPEG-hul", "fmt/43"=>"JPEG-hul", "x-fmt/44"=>"JPEG-hul", "fmt/112"=>"JPEG-hul", "fmt/113"=>"JPEG-hul", "fmt/149"=>"JPEG-hul", "fmt/151"=>"JPEG-hul", "x-fmt/390"=>"JPEG-hul", "x-fmt/391"=>"JPEG-hul", "x-fmt/398"=>"JPEG-hul", "fmt/150"=>"JPEG-hul", "x-fmt/392"=>"JPEG2000-hul","fmt/1"=>"WAVE-hul", "fmt/2"=>"WAVE-hul", "fmt/6"=>"WAVE-hul", "fmt/141"=>"WAVE-hul", "fmt/142"=>"WAVE-hul", "fmt/143"=>"WAVE-hul", "fmt/527"=>"WAVE-hul", "fmt/703"=>"WAVE-hul", "fmt/704"=>"WAVE-hul", "fmt/705"=>"WAVE-hul", "fmt/706"=>"WAVE-hul", "fmt/707"=>"WAVE-hul", "fmt/708"=>"WAVE-hul", "fmt/709"=>"WAVE-hul", "fmt/710"=>"WAVE-hul", "fmt/711"=>"WAVE-hul", "x-fmt/389"=>"WAVE-hul", "x-fmt/396"=>"WAVE-hul", "x-fmt/397"=>"WAVE-hul", "fmt/414"=>"AIFF-hul", "fmt/2"=>"AIFF-hul", "fmt/6"=>"AIFF-hul", "fmt/141"=>"AIFF-hul", "fmt/142"=>"AIFF-hul", "fmt/143"=>"AIFF-hul", "fmt/135"=>"AIFF-hul", "fmt/136"=>"AIFF-hul", "fmt/3"=>"GIF-hul", "fmt/4"=>"GIF-hul", "x-fmt/227"=>"XML-hul", "fmt/121"=>"XML-hul", "fmt/120"=>"XML-hul", "fmt/103"=>"XML-hul", "fmt/102"=>"XML-hul", "fmt/101"=>"XML-hul", "x-fmt/16"=>"UTF8-hul");
@@ -21,6 +31,23 @@ print OUT_NOMATCH "DROID-ID,Pfad,DROID Format Anzahl,DROID Format,sf Format,Jhov
 #create outputfolder for jhove
 unless (-d "$output/jhove"){
   mkdir "$output/jhove";
+}
+
+if ($copyFiles eq "yes"){
+	#create outputfolder for not valid files for further analysis
+	unless (-d "$output/not_valid"){
+	  mkdir "$output/not_valid";
+	}
+
+	#create outputfolder for not well-formed files for further analysis
+	unless (-d "$output/not_wellformed"){
+	  mkdir "$output/not_wellformed";
+	}
+
+	#create outputfolder for files with multiple format hits for further analysis
+	unless (-d "$output/multiple_format"){
+	  mkdir "$output/multiple_format";
+	}
 }
 
 print "DROID-Analyse\n";
@@ -46,6 +73,7 @@ while (my $row = $csv->getline ($fh)) {
         $escPath =~ s/\\\$/\\\\\$/;
         $escPath =~ s/\$/\\\$/;
         #print "escaped path: ".$escPath."\n";
+        #Add path to sf.exe
         my $resSf = qx(sf -csv "$escPath");
         chomp($resSf);
         $resSf =~ m/([x-]*fmt\/\d*)/g;
@@ -58,15 +86,22 @@ while (my $row = $csv->getline ($fh)) {
           my $jhove = jhoveAnalysis($row->[0],$resSf,$path);
           #write reports for matching
           print OUT_MATCH "\"".$row->[0]."\",\"".$path."\",\"".$droid_fmtcount."\",\"".$droid_fmt."\",\"".$resSf."\",\"".$jhove."\",\n";
+          if ($jhove =~ m/Not well-formed/){
+            copyFurtherAnalysis($path,$output."/not_wellformed",$row->[0]);
+          } elsif ($jhove =~ m/Well-Formed, but not valid/){
+            copyFurtherAnalysis($path,$output."/not_valid",$row->[0]);
+          }
         } else {
           #files which don't match or have more than one puid
           if ($droid_fmtcount <= 1) { #mit 0 DROID Treffern oder wenn 1 DROID Treffer, aber sf und DROID nicht zum gleichen Ergebnis kommen
             print OUT_NOMATCH "\"".$row->[0]."\",\"".$path."\",\"".$droid_fmtcount."\",\"".$droid_fmt."\",\"".$resSf."\",\"no definite result by sf and droid, therefore not processed by JHOVE\"\n";
+            copyFurtherAnalysis($path,$output."/multiple_format",$row->[0]);
           } elsif ($droid_fmtcount > 1 && $row->[0] == $previousRowID) {
             $droid_fmt = $droid_fmt." , ".$previousRowFmt;
             $countPUIDs++;
             if ($countPUIDs == $droid_fmtcount) {#erst wenn die Anzahl der PUIDs in $doird_fmt übereinstimmt mit der Anzahl laut $droid_fmtcount in den report
               print OUT_NOMATCH "\"".$row->[0]."\",\"".$path."\",\"".$droid_fmtcount."\",\"".$droid_fmt."\",\"".$resSf."\",\"no definite result by sf and droid, therefore not processed by JHOVE\"\n";
+              copyFurtherAnalysis($path,$output."/multiple_format",$row->[0]);
               $countPUIDs = 1; #counter zurücksetzen
             }
           } #wenn in Zeile mehrere DROID-Treffer genannt sind, aber die vorherige ID nicht übereinstimmt,
@@ -189,12 +224,16 @@ sub getJhoveStatus{
       if (-s $outputFile == 0) {
         $status = "Jhove report is empty";
       } else {
-        my $xml = XML::LibXML->load_xml(location => $outputFile);
-        my $parser = XML::LibXML->new;
-        my $doc = $parser->parse_string($xml);
-        my $xpc = XML::LibXML::XPathContext->new($doc);
-        $xpc->registerNs('x', 'http://schema.openpreservation.org/ois/xml/ns/jhove');
-        $status= $xpc->findvalue('x:jhove/x:repInfo/x:status');
+        open(JHOVEFILE,$outputFile) or die;
+    		my $line = <JHOVEFILE>;
+    		until ($line =~ m/.*status.*/){
+    			$line = <JHOVEFILE>;
+    			$status = $line;
+    		}
+    		close(JHOVEFILE);
+    		$status =~ s/.*<status>(.*)\<\/status>.*/$1/;
+    		$status =~ s/\n//;
+    		#print $status;
       }
     }
   } else {
@@ -213,4 +252,24 @@ sub addToHash{
   } else {
     $overviewUncertain{$case} = 1;
   }
+}
+
+###############subroutine copies file to folder for further analysis
+sub copyFurtherAnalysis{
+	my $filePath = $_[0];
+	my $folderPath = $_[1];
+	my $droid_id =  $_[2];
+	#print "kopiert ".$filePath;
+	#print " nach ".$folderPath."\n";
+  $filePath =~ s/\\/\//g;
+  my $filename = basename($filePath);
+  print $filename."\n";
+	my $newFileName = $folderPath."/".$droid_id."_".$filename;
+  print "alt: ".$filePath."\nneu: ".$newFileName."\n";
+	if ($copyFiles eq "yes") {
+		my $success = copy ($filePath, $newFileName);
+			if ($success!=1){
+			print "Fehler beim kopieren von ".$filePath."\n";
+		}
+	}
 }
